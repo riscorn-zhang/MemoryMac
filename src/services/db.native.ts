@@ -7,6 +7,7 @@ export interface KnowledgePoint {
     name: string;
     s: number;
     last: string;
+    archived: boolean;
 }
 
 // ========== 时间偏移 ==========
@@ -53,6 +54,12 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
         last TEXT NOT NULL
       )`
         );
+        // migration: add archived column if missing
+        try {
+            await db.execAsync('ALTER TABLE k ADD COLUMN archived INTEGER DEFAULT 0');
+        } catch {
+            // column already exists
+        }
     }
     return db;
 }
@@ -60,7 +67,7 @@ async function getDb(): Promise<SQLite.SQLiteDatabase> {
 export async function addKnowledgePoint(name: string): Promise<void> {
     const database = await getDb();
     await database.runAsync(
-        'INSERT INTO k (name, s, last) VALUES (?, 1.0, ?)',
+        'INSERT INTO k (name, s, last, archived) VALUES (?, 1.0, ?, 0)',
         name,
         today()
     );
@@ -90,7 +97,7 @@ export async function reviewKnowledgePoint(
 export async function getAll(): Promise<KnowledgePoint[]> {
     const database = await getDb();
     return database.getAllAsync<KnowledgePoint>(
-        'SELECT id, name, s, last FROM k ORDER BY id'
+        'SELECT id, name, s, last, archived FROM k ORDER BY id'
     );
 }
 
@@ -99,6 +106,7 @@ export async function getDue(
 ): Promise<(KnowledgePoint & { mastery: number })[]> {
     const all = await getAll();
     return all
+        .filter((kp) => !kp.archived)
         .map((kp) => ({ ...kp, mastery: calcMastery(kp.s, kp.last) }))
         .filter((kp) => kp.mastery < threshold)
         .sort((a, b) => a.mastery - b.mastery);
@@ -107,4 +115,21 @@ export async function getDue(
 export async function deleteKnowledgePoint(id: number): Promise<void> {
     const database = await getDb();
     await database.runAsync('DELETE FROM k WHERE id = ?', id);
+}
+
+export async function updateKnowledgePointName(id: number, name: string): Promise<void> {
+    const database = await getDb();
+    await database.runAsync('UPDATE k SET name = ? WHERE id = ?', name, id);
+}
+
+export async function toggleArchiveKnowledgePoint(id: number): Promise<boolean> {
+    const database = await getDb();
+    const row = await database.getFirstAsync<{ archived: number }>(
+        'SELECT archived FROM k WHERE id = ?',
+        id
+    );
+    if (!row) throw new Error(`知识点 ${id} 不存在`);
+    const newVal = row.archived ? 0 : 1;
+    await database.runAsync('UPDATE k SET archived = ? WHERE id = ?', newVal, id);
+    return newVal === 1;
 }

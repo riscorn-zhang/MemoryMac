@@ -1,9 +1,45 @@
-:root {
-  --font-display:
-    Spline Sans, Inter, ui-sans-serif, system-ui, sans-serif, Apple Color Emoji, Segoe UI Emoji,
-    Segoe UI Symbol, Noto Color Emoji;
-  --font-mono:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace;
-  --font-rounded: 'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif;
-  --font-serif: Georgia, 'Times New Roman', serif;
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --color-bg: 255 255 255;
+        --color-surface: 240 240 243;
+        --color-surface-light: 224 225 230;
+        --color-primary: 74 108 247;
+        --color-danger: 231 76 60;
+        --color-warning: 243 156 18;
+        --color-success: 46 204 113;
+        --color-text: 0 0 0;
+        --color-text-secondary: 96 100 108;
+        --color-text-tertiary: 150 153 160;
+        --color-muted: 128 128 128;
+        --color-border: 200 200 210;
+        --color-review-bg: 220 252 231;
+        --color-review-text: 22 163 74;
+        --color-archive-bg: 243 244 246;
+        --color-archive-text: 156 163 175;
+    }
+
+    @media (prefers-color-scheme: dark) {
+        :root {
+            --color-bg: 10 10 10;
+            --color-surface: 26 26 46;
+            --color-surface-light: 42 42 62;
+            --color-primary: 100 140 255;
+            --color-danger: 231 76 60;
+            --color-warning: 243 156 18;
+            --color-success: 46 204 113;
+            --color-text: 255 255 255;
+            --color-text-secondary: 136 136 136;
+            --color-text-tertiary: 170 170 170;
+            --color-muted: 102 102 102;
+            --color-border: 50 50 70;
+            --color-review-bg: 20 83 45;
+            --color-review-text: 74 222 128;
+            --color-archive-bg: 55 65 81;
+            --color-archive-text: 107 114 128;
+        }
+    }
 }

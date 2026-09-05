@@ -9,23 +9,26 @@ import {
   reviewKnowledgePoint,
   setTimeOffset,
   today,
+  toggleArchiveKnowledgePoint,
+  updateKnowledgePointName,
 } from '@/services/db';
-import { useCallback, useEffect, useState } from 'react';
+import { Archive, Pencil, Trash2, EllipsisVertical, Plus } from 'lucide-react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Alert,
-  Dimensions,
   FlatList,
   Modal,
   Pressable,
-  StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-const { width } = Dimensions.get('window');
+
 const THRESHOLD = 40;
+const ENABLE_TIME_OFFSET = true;
 
 export default function App() {
   const insets = useSafeAreaInsets();
@@ -43,6 +46,19 @@ export default function App() {
   const [offsetModalVisible, setOffsetModalVisible] = useState(false);
   const [offsetInput, setOffsetInput] = useState('');
   const [viewMode, setViewMode] = useState<'all' | 'due'>('due');
+
+  // edit modal
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editTarget, setEditTarget] = useState<KnowledgePoint | null>(null);
+  const [editName, setEditName] = useState('');
+
+  // menu & about
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [aboutVisible, setAboutVisible] = useState(false);
+
+  // track the currently open swipeable id for single-row behavior
+  const openSwipeableIdRef = useRef<number | null>(null);
+  const swipeableRefs = useRef<Map<number, Swipeable | null>>(new Map());
 
   const refresh = useCallback(async () => {
     const all = await getAll();
@@ -104,6 +120,20 @@ export default function App() {
     ]);
   };
 
+  // ========== 编辑名称 ==========
+  const handleUpdateName = async () => {
+    if (!editTarget) return;
+    const name = editName.trim();
+    if (!name) {
+      Alert.alert('错误', '名称不能为空');
+      return;
+    }
+    await updateKnowledgePointName(editTarget.id, name);
+    setEditModalVisible(false);
+    setEditTarget(null);
+    refresh();
+  };
+
   // ========== 时间偏移：点击日期弹出输入框 ==========
   const applyOffset = () => {
     const days = parseInt(offsetInput, 10);
@@ -121,25 +151,86 @@ export default function App() {
   const MasteryBar = ({ mastery }: { mastery: number }) => {
     const color = mastery < 30 ? '#e74c3c' : mastery < 60 ? '#f39c12' : '#2ecc71';
     return (
-      <View style={styles.masteryRow}>
-        <View style={styles.barContainer}>
-          <View style={[styles.barFill, { width: `${mastery}%`, backgroundColor: color }]} />
+      <View className="flex-row items-center gap-2">
+        <View className="flex-1 h-2 bg-surface-light rounded overflow-hidden">
+          <View
+            className="h-full rounded"
+            style={{ width: `${mastery}%`, backgroundColor: color }}
+          />
         </View>
-        <Text style={[styles.masteryText, { color }]}>{mastery.toFixed(1)}%</Text>
+        <Text className="text-xs font-bold w-[55px] text-right" style={{ color }}>
+          {mastery.toFixed(1)}%
+        </Text>
       </View>
     );
   };
 
   // ========== 渲染单个知识点卡片 ==========
+  const handleArchive = (item: KnowledgePoint) => {
+    const isArchived = item.archived;
+    Alert.alert(isArchived ? '取消归档' : '确认归档', isArchived ? `将「${item.name}」恢复到列表中` : `归档「${item.name}」后将显示为灰色`, [
+      { text: '取消', style: 'cancel' },
+      {
+        text: isArchived ? '恢复' : '归档',
+        onPress: async () => {
+          await toggleArchiveKnowledgePoint(item.id);
+          refresh();
+        },
+      },
+    ]);
+  };
+
+  const renderRightActions = (item: KnowledgePoint) => (
+    <View className="flex-row items-center mb-2.5 ml-2">
+      <Pressable
+        className="bg-blue-500 w-[72px] items-center justify-center rounded-l-2xl h-full"
+        onPress={() => {
+          setEditTarget(item);
+          setEditName(item.name);
+          setEditModalVisible(true);
+        }}
+      >
+        <Pencil size={20} color="white" />
+        <Text className="text-white text-xs mt-1">编辑</Text>
+      </Pressable>
+      <Pressable
+        className={`w-[72px] items-center justify-center h-full ${item.archived ? 'bg-amber-500' : 'bg-gray-400'}`}
+        onPress={() => handleArchive(item)}
+      >
+        <Archive size={20} color="white" />
+        <Text className="text-white text-xs mt-1">{item.archived ? '恢复' : '归档'}</Text>
+      </Pressable>
+      <Pressable
+        className="bg-red-500 w-[72px] items-center justify-center rounded-r-2xl h-full"
+        onPress={() => handleDelete(item)}
+      >
+        <Trash2 size={20} color="white" />
+        <Text className="text-white text-xs mt-1">删除</Text>
+      </Pressable>
+    </View>
+  );
+
   const renderItem = ({ item }: { item: KnowledgePoint & { mastery?: number } }) => {
     const mastery = item.mastery ?? calcMastery(item.s, item.last);
     const reviewedToday = item.last === currentDate;
-    return (
+    const archived = item.archived;
+
+    const cardBg = archived
+      ? 'bg-archive-bg'
+      : reviewedToday
+        ? 'bg-review-bg'
+        : 'bg-surface';
+    const nameColor = archived
+      ? 'text-archive-text'
+      : reviewedToday
+        ? 'text-review-text'
+        : 'text-text';
+
+    const card = (
       <Pressable
-        style={[styles.kpCard, reviewedToday && styles.kpCardReviewed]}
-        onLongPress={() => handleDelete(item)}
+        className={`${cardBg} rounded-2xl p-4`}
         onPress={
-          reviewedToday
+          archived || reviewedToday
             ? undefined
             : () => {
               setReviewTarget(item);
@@ -148,14 +239,37 @@ export default function App() {
             }
         }
       >
-        <View style={styles.kpHeader}>
-          <Text style={[styles.kpName, reviewedToday && styles.kpNameReviewed]}>
-            {item.name}{reviewedToday ? ' ✓' : ''}
+        <View className="flex-row justify-between items-center mb-2">
+          <Text className={`text-[17px] font-semibold ${nameColor}`}>
+            {item.name}{archived ? ' 📦' : reviewedToday ? ' ✓' : ''}
           </Text>
-          <Text style={styles.kpS}>S={item.s.toFixed(1)}天</Text>
+          <Text className="text-text-secondary text-xs">S={item.s.toFixed(1)}天</Text>
         </View>
         <MasteryBar mastery={mastery} />
       </Pressable>
+    );
+
+    if (viewMode === 'due') {
+      return <View className="mb-2.5">{card}</View>;
+    }
+    return (
+      <Swipeable
+        ref={(ref) => {
+          // ponytail: track the latest ref for this row, used by onSwipeableWillOpen
+          swipeableRefs.current.set(item.id, ref);
+        }}
+        renderRightActions={() => renderRightActions(item)}
+        overshootRight={false}
+        onSwipeableWillOpen={() => {
+          const prev = openSwipeableIdRef.current;
+          if (prev !== null && prev !== item.id) {
+            swipeableRefs.current.get(prev)?.close();
+          }
+          openSwipeableIdRef.current = item.id;
+        }}
+      >
+        <View className="mb-2.5">{card}</View>
+      </Swipeable>
     );
   };
 
@@ -165,32 +279,43 @@ export default function App() {
   }));
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View className="flex-1 bg-bg" style={{ paddingTop: insets.top }}>
       {/* ===== 顶部状态栏 ===== */}
-      <View style={styles.header}>
-        <Pressable onPress={() => {
-          setOffsetInput(String(offset));
-          setOffsetModalVisible(true);
-        }}>
-          <Text style={styles.dateText}>
-            {offset !== 0 ? `🐛 ${currentDate} (偏移${offset > 0 ? '+' : ''}${offset}天)` : `📅 ${currentDate}`}
-          </Text>
-        </Pressable>
-        <View style={styles.viewToggle}>
+      <View className="px-4 pt-3 pb-2">
+        <View className="flex-row justify-between items-center mb-2.5">
+          <View className="flex-1" />
+          <Pressable onPress={ENABLE_TIME_OFFSET ? () => {
+            setOffsetInput(String(offset));
+            setOffsetModalVisible(true);
+          } : undefined}>
+            <Text className="text-text-tertiary text-sm text-center">
+              {offset !== 0 ? `🐛 ${currentDate} (偏移${offset > 0 ? '+' : ''}${offset}天)` : `📅 ${currentDate}`}
+            </Text>
+          </Pressable>
+          <View className="flex-1 items-end">
+            <Pressable
+              className="w-8 h-8 items-center justify-center"
+              onPress={() => setMenuVisible(true)}
+            >
+              <EllipsisVertical size={20} color="#888" />
+            </Pressable>
+          </View>
+        </View>
+        <View className="flex-row gap-2">
           <Pressable
-            style={[styles.toggleBtn, viewMode === 'due' && styles.toggleActive]}
+            className={`flex-1 py-2.5 rounded-xl items-center ${viewMode === 'due' ? 'bg-primary' : 'bg-surface'}`}
             onPress={() => setViewMode('due')}
           >
-            <Text style={[styles.toggleText, viewMode === 'due' && styles.toggleTextActive]}>
-              🔔 待复习 {dueItems.length}
+            <Text className={`text-sm font-semibold ${viewMode === 'due' ? 'text-white' : 'text-text-secondary'}`}>
+              待复习 {dueItems.length}
             </Text>
           </Pressable>
           <Pressable
-            style={[styles.toggleBtn, viewMode === 'all' && styles.toggleActive]}
+            className={`flex-1 py-2.5 rounded-xl items-center ${viewMode === 'all' ? 'bg-primary' : 'bg-surface'}`}
             onPress={() => setViewMode('all')}
           >
-            <Text style={[styles.toggleText, viewMode === 'all' && styles.toggleTextActive]}>
-              📊 全部 {allItems.length}
+            <Text className={`text-sm font-semibold ${viewMode === 'all' ? 'text-white' : 'text-text-secondary'}`}>
+              全部 {allItems.length}
             </Text>
           </Pressable>
         </View>
@@ -201,11 +326,11 @@ export default function App() {
         data={displayData}
         keyExtractor={(item) => item.id.toString()}
         renderItem={renderItem}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={{ padding: 16, paddingBottom: 80 }}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <Text style={styles.emptyEmoji}>📭</Text>
-            <Text style={styles.emptyText}>
+          <View className="items-center mt-20">
+            <Text className="text-5xl mb-3">📭</Text>
+            <Text className="text-muted text-base">
               {viewMode === 'due' ? '没有需要复习的！' : '暂无知识点'}
             </Text>
           </View>
@@ -214,38 +339,38 @@ export default function App() {
 
       {/* ===== 底部添加按钮 ===== */}
       <Pressable
-        style={styles.fab}
+        className="absolute bottom-8 right-8 w-20 h-20 bg-primary rounded-3xl py-4 items-center justify-center shadow-lg"
         onPress={() => {
           setAddName('');
           setAddModalVisible(true);
         }}
       >
-        <Text style={styles.fabText}>+ 添加知识点</Text>
+        <Plus color="white" />
       </Pressable>
 
       {/* ===== 添加弹窗 ===== */}
       <Modal visible={addModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>添加知识点</Text>
+        <View className="flex-1 bg-black/70 justify-center items-center p-6">
+          <View className="bg-surface rounded-[20px] p-6 w-full max-w-[360px]">
+            <Text className="text-text text-xl font-bold mb-4 text-center">添加知识点</Text>
             <TextInput
-              style={styles.input}
+              className="bg-bg rounded-xl p-3.5 text-text text-base mb-4 border border-border"
               placeholder="知识点名称"
-              placeholderTextColor="#666"
+              placeholderTextColor="#888"
               value={addName}
               onChangeText={setAddName}
               autoFocus
               onSubmitEditing={handleAdd}
             />
-            <View style={styles.modalButtons}>
+            <View className="flex-row gap-3">
               <Pressable
-                style={[styles.modalBtn, styles.cancelBtn]}
+                className="flex-1 py-3 rounded-xl items-center bg-surface-light"
                 onPress={() => setAddModalVisible(false)}
               >
-                <Text style={styles.cancelBtnText}>取消</Text>
+                <Text className="text-text-tertiary text-base font-semibold">取消</Text>
               </Pressable>
-              <Pressable style={[styles.modalBtn, styles.confirmBtn]} onPress={handleAdd}>
-                <Text style={styles.confirmBtnText}>添加</Text>
+              <Pressable className="flex-1 py-3 rounded-xl items-center bg-primary" onPress={handleAdd}>
+                <Text className="text-white text-base font-semibold">添加</Text>
               </Pressable>
             </View>
           </View>
@@ -254,32 +379,34 @@ export default function App() {
 
       {/* ===== 复习弹窗 ===== */}
       <Modal visible={reviewModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>复习: {reviewTarget?.name}</Text>
-            <Text style={styles.reviewHint}>掌握度打分 (0-100)</Text>
+        <View className="flex-1 bg-black/70 justify-center items-center p-6">
+          <View className="bg-surface rounded-[20px] p-6 w-full max-w-[360px]">
+            <Text className="text-text text-xl font-bold mb-4 text-center">
+              复习: {reviewTarget?.name}
+            </Text>
+            <Text className="text-text-secondary text-sm mb-2 text-center">掌握度打分 (0-100)</Text>
             <TextInput
-              style={styles.input}
+              className="bg-bg rounded-xl p-3.5 text-text text-base mb-4 border border-border"
               placeholder="0-100"
-              placeholderTextColor="#666"
+              placeholderTextColor="#888"
               value={reviewScore}
               onChangeText={setReviewScore}
               keyboardType="numeric"
               autoFocus
               onSubmitEditing={handleReview}
             />
-            <View style={styles.modalButtons}>
+            <View className="flex-row gap-3">
               <Pressable
-                style={[styles.modalBtn, styles.cancelBtn]}
+                className="flex-1 py-3 rounded-xl items-center bg-surface-light"
                 onPress={() => {
                   setReviewModalVisible(false);
                   setReviewTarget(null);
                 }}
               >
-                <Text style={styles.cancelBtnText}>取消</Text>
+                <Text className="text-text-tertiary text-base font-semibold">取消</Text>
               </Pressable>
-              <Pressable style={[styles.modalBtn, styles.confirmBtn]} onPress={handleReview}>
-                <Text style={styles.confirmBtnText}>确认</Text>
+              <Pressable className="flex-1 py-3 rounded-xl items-center bg-primary" onPress={handleReview}>
+                <Text className="text-white text-base font-semibold">确认</Text>
               </Pressable>
             </View>
           </View>
@@ -288,227 +415,103 @@ export default function App() {
 
       {/* ===== 时间偏移弹窗 ===== */}
       <Modal visible={offsetModalVisible} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>设置时间偏移</Text>
-            <Text style={styles.reviewHint}>输入偏移天数（正=快进，负=回退，0=正常）</Text>
+        <View className="flex-1 bg-black/70 justify-center items-center p-6">
+          <View className="bg-surface rounded-[20px] p-6 w-full max-w-[360px]">
+            <Text className="text-text text-xl font-bold mb-4 text-center">设置时间偏移</Text>
+            <Text className="text-sm mb-2 text-center color-yellow-500">调试模式</Text>
+            <Text className="text-text-secondary text-sm mb-2 text-center">
+              输入偏移天数（正=快进，负=回退，0=正常）
+            </Text>
             <TextInput
-              style={styles.input}
+              className="bg-bg rounded-xl p-3.5 text-text text-base mb-4 border border-border"
               placeholder="偏移天数"
-              placeholderTextColor="#666"
+              placeholderTextColor="#888"
               value={offsetInput}
               onChangeText={setOffsetInput}
               keyboardType="numeric"
               autoFocus
               onSubmitEditing={applyOffset}
             />
-            <View style={styles.modalButtons}>
+            <View className="flex-row gap-3">
               <Pressable
-                style={[styles.modalBtn, styles.cancelBtn]}
+                className="flex-1 py-3 rounded-xl items-center bg-surface-light"
                 onPress={() => setOffsetModalVisible(false)}
               >
-                <Text style={styles.cancelBtnText}>取消</Text>
+                <Text className="text-text-tertiary text-base font-semibold">取消</Text>
               </Pressable>
-              <Pressable style={[styles.modalBtn, styles.confirmBtn]} onPress={applyOffset}>
-                <Text style={styles.confirmBtnText}>确认</Text>
+              <Pressable className="flex-1 py-3 rounded-xl items-center bg-primary" onPress={applyOffset}>
+                <Text className="text-white text-base font-semibold">确认</Text>
               </Pressable>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ===== 编辑名称弹窗 ===== */}
+      <Modal visible={editModalVisible} transparent animationType="fade">
+        <View className="flex-1 bg-black/70 justify-center items-center p-6">
+          <View className="bg-surface rounded-[20px] p-6 w-full max-w-[360px]">
+            <Text className="text-text text-xl font-bold mb-4 text-center">编辑名称</Text>
+            <TextInput
+              className="bg-bg rounded-xl p-3.5 text-text text-base mb-4 border border-border"
+              placeholder="知识点名称"
+              placeholderTextColor="#888"
+              value={editName}
+              onChangeText={setEditName}
+              autoFocus
+              onSubmitEditing={handleUpdateName}
+            />
+            <View className="flex-row gap-3">
+              <Pressable
+                className="flex-1 py-3 rounded-xl items-center bg-surface-light"
+                onPress={() => setEditModalVisible(false)}
+              >
+                <Text className="text-text-tertiary text-base font-semibold">取消</Text>
+              </Pressable>
+              <Pressable className="flex-1 py-3 rounded-xl items-center bg-primary" onPress={handleUpdateName}>
+                <Text className="text-white text-base font-semibold">保存</Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ===== 菜单弹窗 ===== */}
+      <Modal visible={menuVisible} transparent animationType="fade">
+        <Pressable className="flex-1 bg-black/50" onPress={() => setMenuVisible(false)}>
+          <View className="absolute top-12 right-4 bg-surface rounded-2xl shadow-lg overflow-hidden w-40">
+            <Pressable
+              className="flex-row items-center gap-3 px-4 py-3.5"
+              onPress={() => {
+                setMenuVisible(false);
+                setAboutVisible(true);
+              }}
+            >
+              <Text className="text-text text-base">关于</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* ===== 关于弹窗 ===== */}
+      <Modal visible={aboutVisible} transparent animationType="fade">
+        <View className="flex-1 bg-black/70 justify-center items-center p-6">
+          <View className="bg-surface rounded-[20px] p-6 w-full max-w-[360px]">
+            <Text className="text-text text-xl font-bold mb-4 text-center">关于 MemoryMac</Text>
+            <Text className="text-text-secondary text-sm text-center mb-1">间隔记忆复习助手</Text>
+            <Text className="text-text-tertiary text-xs text-center mb-4">v1.0.0</Text>
+            <Text className="text-text-secondary text-sm text-center mb-4 leading-5">
+              基于遗忘曲线的间隔复习系统，帮助你高效记忆知识点。
+            </Text>
+            <Pressable
+              className="py-3 rounded-xl items-center bg-primary"
+              onPress={() => setAboutVisible(false)}
+            >
+              <Text className="text-white text-base font-semibold">关闭</Text>
+            </Pressable>
           </View>
         </View>
       </Modal>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#0a0a0a',
-  },
-  // header
-  header: {
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
-  },
-  dateText: {
-    color: '#aaa',
-    fontSize: 14,
-    textAlign: 'center',
-    marginBottom: 10,
-  },
-  viewToggle: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  toggleBtn: {
-    flex: 1,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: '#1a1a2e',
-    alignItems: 'center',
-  },
-  toggleActive: {
-    backgroundColor: '#4a6cf7',
-  },
-  toggleText: {
-    color: '#888',
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  toggleTextActive: {
-    color: '#fff',
-  },
-  // list
-  list: {
-    padding: 16,
-    paddingBottom: 80,
-  },
-  kpCard: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 16,
-    padding: 16,
-    marginBottom: 10,
-  },
-  kpCardReviewed: {
-    opacity: 0.5,
-  },
-  kpHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  kpName: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '600',
-  },
-  kpNameReviewed: {
-    color: '#666',
-  },
-  kpS: {
-    color: '#888',
-    fontSize: 13,
-  },
-  masteryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  barContainer: {
-    flex: 1,
-    height: 8,
-    backgroundColor: '#2a2a3e',
-    borderRadius: 4,
-    overflow: 'hidden',
-  },
-  barFill: {
-    height: '100%',
-    borderRadius: 4,
-  },
-  masteryText: {
-    fontSize: 13,
-    fontWeight: '700',
-    width: 55,
-    textAlign: 'right',
-  },
-  // empty
-  empty: {
-    alignItems: 'center',
-    marginTop: 80,
-  },
-  emptyEmoji: {
-    fontSize: 48,
-    marginBottom: 12,
-  },
-  emptyText: {
-    color: '#666',
-    fontSize: 16,
-  },
-  // fab
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    left: 16,
-    right: 16,
-    backgroundColor: '#4a6cf7',
-    borderRadius: 16,
-    paddingVertical: 16,
-    alignItems: 'center',
-    shadowColor: '#4a6cf7',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  fabText: {
-    color: '#fff',
-    fontSize: 17,
-    fontWeight: '700',
-  },
-  // modal
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: 24,
-  },
-  modalContent: {
-    backgroundColor: '#1a1a2e',
-    borderRadius: 20,
-    padding: 24,
-    width: '100%',
-    maxWidth: 360,
-  },
-  modalTitle: {
-    color: '#fff',
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  input: {
-    backgroundColor: '#0a0a0a',
-    borderRadius: 12,
-    padding: 14,
-    color: '#fff',
-    fontSize: 16,
-    marginBottom: 16,
-    borderWidth: 1,
-    borderColor: '#2a2a3e',
-  },
-  reviewHint: {
-    color: '#888',
-    fontSize: 14,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  modalBtn: {
-    flex: 1,
-    paddingVertical: 12,
-    borderRadius: 12,
-    alignItems: 'center',
-  },
-  cancelBtn: {
-    backgroundColor: '#2a2a3e',
-  },
-  cancelBtnText: {
-    color: '#aaa',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-  confirmBtn: {
-    backgroundColor: '#4a6cf7',
-  },
-  confirmBtnText: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: '600',
-  },
-});

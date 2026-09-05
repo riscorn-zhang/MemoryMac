@@ -6,6 +6,7 @@ export interface KnowledgePoint {
     name: string;
     s: number;
     last: string;
+    archived: boolean;
 }
 
 // ========== 时间偏移 ==========
@@ -43,7 +44,7 @@ let store: KnowledgePoint[] = [];
 let nextId = 1;
 
 export async function addKnowledgePoint(name: string): Promise<void> {
-    store.push({ id: nextId++, name, s: 1.0, last: today() });
+    store.push({ id: nextId++, name, s: 1.0, last: today(), archived: false });
 }
 
 export async function reviewKnowledgePoint(
@@ -66,6 +67,7 @@ export async function getDue(
     threshold: number = 40
 ): Promise<(KnowledgePoint & { mastery: number })[]> {
     return store
+        .filter((kp) => !kp.archived)
         .map((kp) => ({ ...kp, mastery: calcMastery(kp.s, kp.last) }))
         .filter((kp) => kp.mastery < threshold)
         .sort((a, b) => a.mastery - b.mastery);
@@ -73,4 +75,17 @@ export async function getDue(
 
 export async function deleteKnowledgePoint(id: number): Promise<void> {
     store = store.filter((k) => k.id !== id);
+}
+
+export async function updateKnowledgePointName(id: number, name: string): Promise<void> {
+    const kp = store.find((k) => k.id === id);
+    if (!kp) throw new Error(`知识点 ${id} 不存在`);
+    kp.name = name;
+}
+
+export async function toggleArchiveKnowledgePoint(id: number): Promise<boolean> {
+    const kp = store.find((k) => k.id === id);
+    if (!kp) throw new Error(`知识点 ${id} 不存在`);
+    kp.archived = !kp.archived;
+    return kp.archived;
 }
