@@ -28,7 +28,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 
 const THRESHOLD = 40;
-const ENABLE_TIME_OFFSET = true;
+const ENABLE_TIME_OFFSET = false;
 
 export default function App() {
   const insets = useSafeAreaInsets();

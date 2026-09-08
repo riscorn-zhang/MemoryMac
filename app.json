@@ -18,7 +18,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.MemoryMac"
+      "package": "dev.riscorn.memorymac"
     },
     "web": {
       "output": "static",
@@ -39,6 +39,12 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "dee09801-fb5a-44f1-9705-36aa330a238e"
+      }
     }
   }
 }
